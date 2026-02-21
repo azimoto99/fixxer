@@ -1,159 +1,55 @@
 # Fixer
 
-Fixer is a Windows-first background optimizer that adjusts process priorities by context (gaming, streaming, normal use), enforces configurable process policy, and can run as a tray app, startup app, or Windows service.
+Fixer is a Windows background performance optimizer that continuously manages process priority and policy based on what you are doing right now, especially gaming and streaming.
 
-## Features
+## What The Software Does
 
-- Context detection for `default`, `gaming`, and `streaming` profiles.
-- Priority manager with profile-driven `boost`, `throttle`, and `close` targets.
-- Resource watchdog for sustained CPU hogs.
-- Suspicious process detection for miner, keylogger, and unauthorized recorder patterns.
-- Runtime safety modes: `safe`, `balanced`, `aggressive`.
-- Tray UI with start/stop, mode/profile overrides, and log file access.
-- Learning mode that writes suggestion snapshots for config tuning.
-- Startup registration (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
-- Windows service install/start/stop/status/remove commands.
+- Detects user context from running processes and foreground activity.
+- Switches runtime behavior between `default`, `gaming`, and `streaming` profiles.
+- Raises priority for critical apps (game, streamer) and lowers priority for less important background tasks.
+- Detects sustained CPU hogs and applies mode-based remediation.
+- Flags suspicious process patterns such as potential miners, keyloggers, and unauthorized recorder processes.
+- Supports policy-driven process close/throttle behavior with protected-process safeguards.
+- Can run from console, tray, startup registration, or as a Windows service.
 
-## Development Install
+## How Fixer Operates In Real Time
 
-```powershell
-pip install -r requirements.txt
-```
+1. Scans active processes, CPU usage, and foreground app.
+2. Selects the best profile for the current context.
+3. Applies profile actions (`boost`, `throttle`, `close`) from config.
+4. Monitors for resource abuse and suspicious behavior.
+5. Applies safety-mode enforcement and logs every important action.
 
-## Run
+## Runtime Profiles
 
-Single cycle dry-run:
+- `default`: conservative desktop behavior.
+- `gaming`: prioritizes game process responsiveness.
+- `streaming`: prioritizes both game and streaming process stability.
 
-```powershell
-python -m fixer run --dry-run --once
-```
+## Safety Modes
 
-Continuous console run:
-
-```powershell
-python -m fixer run --dry-run
-```
-
-Tray app:
-
-```powershell
-python -m fixer tray --dry-run
-```
-
-Legacy shortcut (maps to `run`):
-
-```powershell
-python -m fixer --dry-run
-```
+- `safe`: observe/log only for risky actions; no hard enforcement.
+- `balanced`: moderate enforcement such as throttling.
+- `aggressive`: strongest enforcement, including termination where policy allows.
 
 ## Learning Mode
 
-Enable from CLI:
+Learning mode observes repeated runtime patterns and writes local suggestions to help tune configuration.
 
-```powershell
-python -m fixer run --dry-run --learning-mode
-```
-
-Config section (`config/default.json`):
-
-```json
-"learning": {
-  "enabled": true,
-  "output_path": "data/learning_suggestions.json",
-  "min_occurrences": 5,
-  "autosave_seconds": 30.0
-}
-```
-
-Suggestion targets produced by learning snapshots:
+Suggested targets include:
 - `resource_allowlist`
 - `suspicious.authorized_recorders`
 - `game_processes`
 - `streaming_processes`
 
-## Startup Commands
+## What Fixer Is Not
 
-Install startup entry:
+- Not a replacement for antivirus/EDR.
+- Not guaranteed to improve every workload equally.
+- Not a one-click substitute for proper system tuning, drivers, and thermal management.
 
-```powershell
-python -m fixer startup install --config config/default.json --dry-run --learning-mode
-```
+## Safety Principles
 
-Status:
-
-```powershell
-python -m fixer startup status
-```
-
-Remove:
-
-```powershell
-python -m fixer startup remove
-```
-
-## Service Commands
-
-Service mode requires admin rights.
-
-Install (auto-start):
-
-```powershell
-python -m fixer service install --config config/default.json
-```
-
-Install (manual start):
-
-```powershell
-python -m fixer service install --config config/default.json --manual-start
-```
-
-Control:
-
-```powershell
-python -m fixer service start
-python -m fixer service stop
-python -m fixer service status
-python -m fixer service remove
-```
-
-Service settings path:
-- `C:\ProgramData\Fixer\service_settings.json`
-
-## Build For Windows
-
-Install build tools:
-
-```powershell
-pip install -r requirements.txt
-pip install -r requirements-build.txt
-```
-
-Build executables:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 -Clean -RunTests -Zip
-```
-
-Build outputs:
-- `dist\FixerCLI\FixerCLI.exe`
-- `dist\FixerTray\FixerTray.exe`
-- `release\Fixer-Windows\`
-- `release\Fixer-Windows.zip` (when `-Zip` is used)
-
-## Build Installer (Inno Setup)
-
-After building release files, install Inno Setup (which provides `iscc`) and compile installer script:
-
-```powershell
-iscc installer\fixer.iss
-```
-
-Installer output:
-- `release\Fixer-Setup.exe`
-
-## Safety Notes
-
-- Start in `safe` mode.
-- Keep `--dry-run` enabled until process rules are tuned.
-- Protected processes are never terminated.
-- Review learning suggestions before applying them.
+- Protected system processes are never terminated by policy.
+- Start with `safe` mode and `--dry-run` while tuning rules.
+- Review logs and learning suggestions before enabling aggressive behavior.
