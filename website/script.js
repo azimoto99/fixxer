@@ -23,13 +23,19 @@
     yearTarget.textContent = `Copyright ${new Date().getFullYear()} Fixer. All rights reserved.`;
   }
 
-  if (window.adsbygoogle) {
-    document.querySelectorAll('.adsbygoogle').forEach(() => {
+  const initAds = () => {
+    document.querySelectorAll('.adsbygoogle').forEach((ad) => {
+      if (ad.dataset.adInitialized === 'true') return;
       try {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
+        ad.dataset.adInitialized = 'true';
       } catch (error) {
-        // Keep site functional even if ads are blocked.
+        // Keep site functional even if ads are blocked or not yet ready.
       }
     });
-  }
+  };
+
+  initAds();
+  window.addEventListener('load', initAds, { once: true });
+  setTimeout(initAds, 1200);
 })();
