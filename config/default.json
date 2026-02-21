@@ -1,0 +1,119 @@
+{
+  "mode": "safe",
+  "loop_interval_seconds": 2.0,
+  "hog_cpu_percent": 55.0,
+  "hog_observation_windows": 3,
+  "game_processes": [
+    "valorant.exe",
+    "cs2.exe",
+    "fortniteclient-win64-shipping.exe",
+    "dota2.exe",
+    "leagueoflegends.exe",
+    "overwatch.exe"
+  ],
+  "streaming_processes": [
+    "obs64.exe",
+    "streamlabs.exe",
+    "xsplit.core.exe"
+  ],
+  "profiles": {
+    "default": {
+      "boost": [],
+      "throttle": [
+        "onedrive.exe",
+        "teams.exe"
+      ],
+      "close": []
+    },
+    "gaming": {
+      "boost": [
+        "{active_game}"
+      ],
+      "throttle": [
+        "chrome.exe",
+        "msedge.exe",
+        "spotify.exe"
+      ],
+      "close": [
+        "adobearm.exe",
+        "updater.exe"
+      ]
+    },
+    "streaming": {
+      "boost": [
+        "obs64.exe",
+        "streamlabs.exe",
+        "{active_game}"
+      ],
+      "throttle": [
+        "chrome.exe",
+        "msedge.exe"
+      ],
+      "close": [
+        "adobearm.exe"
+      ]
+    }
+  },
+  "suspicious": {
+    "authorized_recorders": [
+      "obs64.exe",
+      "streamlabs.exe",
+      "xsplit.core.exe",
+      "gamebar.exe"
+    ],
+    "recorder_indicators": [
+      "obs",
+      "streamlabs",
+      "xsplit",
+      "bandicam",
+      "screenrec",
+      "capture"
+    ],
+    "keylogger_indicators": [
+      "keylog",
+      "keyboardhook",
+      "keystroke",
+      "inputcapture",
+      "hook"
+    ],
+    "miner_indicators": [
+      "xmrig",
+      "miner",
+      "nicehash",
+      "ethminer",
+      "lolminer",
+      "trex",
+      "nbminer",
+      "cryptonight"
+    ],
+    "always_terminate_names": [
+      "xmrig.exe",
+      "ethminer.exe",
+      "lolminer.exe"
+    ]
+  },
+  "protected_processes": [
+    "system",
+    "registry",
+    "smss.exe",
+    "csrss.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "services.exe",
+    "lsass.exe",
+    "svchost.exe",
+    "explorer.exe",
+    "dwm.exe"
+  ],
+  "resource_allowlist": [
+    "obs64.exe",
+    "streamlabs.exe"
+  ],
+  "learning": {
+    "enabled": false,
+    "output_path": "data/learning_suggestions.json",
+    "min_occurrences": 5,
+    "autosave_seconds": 30.0
+  },
+  "log_level": "INFO"
+}

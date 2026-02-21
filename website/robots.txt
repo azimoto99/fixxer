@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://fixer.gg/sitemap.xml
