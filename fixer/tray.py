@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import subprocess
 import threading
 from pathlib import Path
@@ -25,6 +26,14 @@ def _tray_log_path() -> Path:
         path = Path("logs") / "tray.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _open_in_notepad(path: Path) -> OSError | None:
+    try:
+        subprocess.Popen(["notepad.exe", str(path)], close_fds=True)
+        return None
+    except OSError as exc:
+        return exc
 
 
 class AgentController:
@@ -123,11 +132,282 @@ class AgentController:
         return str(path)
 
 
+class ControlPanelWindow:
+    def __init__(self, controller: AgentController, log_path: Path) -> None:
+        self._controller = controller
+        self._log_path = log_path
+        self._commands: queue.Queue[str] = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def show(self) -> None:
+        with self._lock:
+            if not self._thread or not self._thread.is_alive():
+                self._thread = threading.Thread(
+                    target=self._run_loop,
+                    name="fixer-control-panel",
+                    daemon=True,
+                )
+                self._thread.start()
+
+        self._commands.put("show")
+
+    def shutdown(self) -> None:
+        with self._lock:
+            thread = self._thread
+
+        if not thread or not thread.is_alive():
+            return
+
+        self._commands.put("quit")
+        thread.join(timeout=3)
+
+        with self._lock:
+            if self._thread is thread and not thread.is_alive():
+                self._thread = None
+
+    def _run_loop(self) -> None:
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+        except ImportError:
+            LOGGER.exception("Control panel unavailable because tkinter could not be imported")
+            return
+
+        root = tk.Tk()
+        root.title("Fixer Control Panel")
+        root.geometry("520x390")
+        root.minsize(460, 330)
+        root.withdraw()
+
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(0, weight=1)
+
+        container = ttk.Frame(root, padding=12)
+        container.grid(row=0, column=0, sticky="nsew")
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(2, weight=1)
+
+        status_value = tk.StringVar(value=self._controller.status_text())
+        mode_value = tk.StringVar(value=self._controller.mode_override() or "auto")
+        profile_value = tk.StringVar(value=self._controller.profile_override() or "auto")
+        action_value = tk.StringVar(value="Ready")
+
+        ttk.Label(container, text="Status", font=("", 10, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            container,
+            textvariable=status_value,
+            wraplength=470,
+            justify="left",
+        ).grid(row=1, column=0, sticky="ew", pady=(4, 10))
+
+        runtime_bar = ttk.Frame(container)
+        runtime_bar.grid(row=2, column=0, sticky="ew")
+        runtime_bar.columnconfigure(0, weight=1)
+        runtime_bar.columnconfigure(1, weight=1)
+        runtime_bar.columnconfigure(2, weight=1)
+
+        overrides = ttk.Frame(container)
+        overrides.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
+        overrides.columnconfigure(0, weight=1)
+        overrides.columnconfigure(1, weight=1)
+
+        mode_frame = ttk.LabelFrame(overrides, text="Mode Override", padding=10)
+        mode_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        profile_frame = ttk.LabelFrame(overrides, text="Profile Override", padding=10)
+        profile_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+
+        utility_bar = ttk.Frame(container)
+        utility_bar.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        utility_bar.columnconfigure(0, weight=1)
+        utility_bar.columnconfigure(1, weight=1)
+        utility_bar.columnconfigure(2, weight=1)
+
+        ttk.Label(container, textvariable=action_value, wraplength=470, justify="left").grid(
+            row=5,
+            column=0,
+            sticky="ew",
+            pady=(10, 0),
+        )
+
+        def _refresh_bindings() -> None:
+            mode_selected = self._controller.mode_override() or "auto"
+            if mode_value.get() != mode_selected:
+                mode_value.set(mode_selected)
+
+            profile_selected = self._controller.profile_override() or "auto"
+            if profile_value.get() != profile_selected:
+                profile_value.set(profile_selected)
+
+        def _apply_mode() -> None:
+            selected = mode_value.get()
+            if selected == "auto":
+                self._controller.set_mode_override(None)
+                action_value.set("Mode override set to auto")
+                return
+
+            if selected in {"safe", "balanced", "aggressive"}:
+                self._controller.set_mode_override(selected)
+                action_value.set(f"Mode override set to {selected}")
+
+        def _apply_profile() -> None:
+            selected = profile_value.get()
+            if selected == "auto":
+                self._controller.set_profile_override(None)
+                action_value.set("Profile override set to auto")
+                return
+
+            try:
+                self._controller.set_profile_override(selected)
+                action_value.set(f"Profile override set to {selected}")
+            except ValueError as exc:
+                LOGGER.warning("Profile override rejected: %s", exc)
+                action_value.set(str(exc))
+                _refresh_bindings()
+
+        def _start_runtime() -> None:
+            self._controller.start()
+            action_value.set("Runtime started")
+
+        def _stop_runtime() -> None:
+            self._controller.stop()
+            action_value.set("Runtime stopped")
+
+        def _open_logs() -> None:
+            error = _open_in_notepad(self._log_path)
+            if error:
+                LOGGER.warning("Failed to open log file: %s", error)
+                action_value.set("Could not open logs")
+            else:
+                action_value.set(f"Opened logs: {self._log_path}")
+
+        def _save_learning() -> None:
+            output = self._controller.save_learning_snapshot()
+            action_value.set(f"Learning snapshot: {output}")
+
+        def _hide_window() -> None:
+            root.withdraw()
+
+        def _refresh_status() -> None:
+            status_value.set(self._controller.status_text())
+            _refresh_bindings()
+            root.after(1000, _refresh_status)
+
+        def _process_commands() -> None:
+            while True:
+                try:
+                    command = self._commands.get_nowait()
+                except queue.Empty:
+                    break
+
+                if command == "show":
+                    root.deiconify()
+                    root.lift()
+                    try:
+                        root.focus_force()
+                    except tk.TclError:
+                        pass
+                    continue
+
+                if command == "quit":
+                    root.destroy()
+                    return
+
+            root.after(200, _process_commands)
+
+        ttk.Button(runtime_bar, text="Start", command=_start_runtime).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(runtime_bar, text="Stop", command=_stop_runtime).grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Button(runtime_bar, text="Hide", command=_hide_window).grid(row=0, column=2, sticky="ew", padx=(6, 0))
+
+        ttk.Radiobutton(mode_frame, text="Auto", value="auto", variable=mode_value, command=_apply_mode).grid(
+            row=0,
+            column=0,
+            sticky="w",
+        )
+        ttk.Radiobutton(mode_frame, text="Safe", value="safe", variable=mode_value, command=_apply_mode).grid(
+            row=1,
+            column=0,
+            sticky="w",
+        )
+        ttk.Radiobutton(
+            mode_frame,
+            text="Balanced",
+            value="balanced",
+            variable=mode_value,
+            command=_apply_mode,
+        ).grid(row=2, column=0, sticky="w")
+        ttk.Radiobutton(
+            mode_frame,
+            text="Aggressive",
+            value="aggressive",
+            variable=mode_value,
+            command=_apply_mode,
+        ).grid(row=3, column=0, sticky="w")
+
+        ttk.Radiobutton(
+            profile_frame,
+            text="Auto",
+            value="auto",
+            variable=profile_value,
+            command=_apply_profile,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Radiobutton(
+            profile_frame,
+            text="Default",
+            value="default",
+            variable=profile_value,
+            command=_apply_profile,
+        ).grid(row=1, column=0, sticky="w")
+        ttk.Radiobutton(
+            profile_frame,
+            text="Gaming",
+            value="gaming",
+            variable=profile_value,
+            command=_apply_profile,
+        ).grid(row=2, column=0, sticky="w")
+        ttk.Radiobutton(
+            profile_frame,
+            text="Streaming",
+            value="streaming",
+            variable=profile_value,
+            command=_apply_profile,
+        ).grid(row=3, column=0, sticky="w")
+
+        ttk.Button(utility_bar, text="Open Logs", command=_open_logs).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(utility_bar, text="Save Learning Snapshot", command=_save_learning).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=6,
+        )
+        ttk.Button(utility_bar, text="Refresh Status", command=lambda: status_value.set(self._controller.status_text())).grid(
+            row=0,
+            column=2,
+            sticky="ew",
+            padx=(6, 0),
+        )
+
+        root.protocol("WM_DELETE_WINDOW", _hide_window)
+
+        _refresh_bindings()
+        _refresh_status()
+        _process_commands()
+
+        try:
+            root.mainloop()
+        finally:
+            current = threading.current_thread()
+            with self._lock:
+                if self._thread is current:
+                    self._thread = None
+
+
 class TrayApplication:
     def __init__(self, config: AppConfig, dry_run: bool, learning_mode: bool) -> None:
         self._controller = AgentController(config, dry_run=dry_run, learning_mode=learning_mode)
         self._log_path = _tray_log_path()
         self._configure_file_logging(config.log_level)
+        self._control_panel = ControlPanelWindow(controller=self._controller, log_path=self._log_path)
 
         self._icon = pystray.Icon(
             name="Fixer",
@@ -162,6 +442,7 @@ class TrayApplication:
     def _build_menu(self) -> Menu:
         return Menu(
             MenuItem(lambda _: self._controller.status_text(), None, enabled=False),
+            MenuItem("Open Control Panel", self._on_open_control_panel),
             MenuItem(
                 "Runtime",
                 Menu(
@@ -198,11 +479,13 @@ class TrayApplication:
     def _on_stop(self, _icon: pystray.Icon, _item: MenuItem) -> None:
         self._controller.stop()
 
+    def _on_open_control_panel(self, _icon: pystray.Icon, _item: MenuItem) -> None:
+        self._control_panel.show()
+
     def _on_open_logs(self, icon: pystray.Icon, _item: MenuItem) -> None:
-        try:
-            subprocess.Popen(["notepad.exe", str(self._log_path)], close_fds=True)
-        except OSError as exc:
-            LOGGER.warning("Failed to open log file: %s", exc)
+        error = _open_in_notepad(self._log_path)
+        if error:
+            LOGGER.warning("Failed to open log file: %s", error)
             icon.notify("Could not open logs", "Fixer")
 
     def _on_save_learning(self, icon: pystray.Icon, _item: MenuItem) -> None:
@@ -211,6 +494,7 @@ class TrayApplication:
 
     def _on_exit(self, icon: pystray.Icon, _item: MenuItem) -> None:
         LOGGER.info("Exiting tray UI")
+        self._control_panel.shutdown()
         self._controller.stop()
         icon.stop()
 
